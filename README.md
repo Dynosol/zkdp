@@ -1,4 +1,4 @@
-# webdemo
+# ZKDP (Zero-Knowledge Differential Privacy Demo)
 
 A web application demonstrating privacy-preserving cryptographic concepts.
 
@@ -33,8 +33,8 @@ It features a multi-page navigation structure and includes an interactive demo/g
 
 1.  Clone the repository:
     ```bash
-    git clone <repository-url>
-    cd webdemo
+    git clone https://github.com/Dynosol/zkdp
+    cd zkdp
     ```
 2.  Install dependencies:
     ```bash
@@ -69,7 +69,7 @@ Open your browser and navigate to `http://localhost:5173` (or the port specified
 ## Project Structure
 
 ```
-webdemo/
+zkdp/
 ├── public/             # Static assets
 ├── src/                # Source files
 │   ├── assets/         # Image/font assets
