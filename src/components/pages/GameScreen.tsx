@@ -48,6 +48,7 @@ interface PrivateBit {
   value: number;
   sampledVia: 'uniform' | 'manual' | 'manual probability';
   committed: boolean;
+  s?: number; // Random number for Pedersen commitment
 }
 
 interface PublicBit { // Interface for public bits
@@ -64,6 +65,12 @@ interface CalculationIntermediateValues {
   nbOver2?: number;
   noiseVal?: number;
   originalNoisySumY?: number; // Store the pre-rounded value
+}
+
+// State for Step 10: Compute Z
+interface ZIntermediateValues {
+  sumR?: number;
+  sumS?: number;
 }
 
 export default function GameScreen({ onBack }: GameScreenProps) {
@@ -89,7 +96,6 @@ export default function GameScreen({ onBack }: GameScreenProps) {
     'compute-sum' | 
     'compute-z' | 
     'commit-pedersen' | 
-    'release-proofs' | 
     'verify'
   >('input');
   const [completedSteps, setCompletedSteps] = useState<Set<string>>(new Set());
@@ -114,6 +120,21 @@ export default function GameScreen({ onBack }: GameScreenProps) {
   const [calculationProgress, setCalculationProgress] = useState<number>(0); // 0: idle, 1: calculating, 2: done
   const [intermediateValues, setIntermediateValues] = useState<CalculationIntermediateValues>({});
 
+  // State for Step 10: Compute Z
+  const [zValue, setZValue] = useState<number | null>(null);
+  const [zCalculationProgress, setZCalculationProgress] = useState<number>(0); // 0: idle, 1: calculating, 2: done
+  const [zIntermediateValues, setZIntermediateValues] = useState<ZIntermediateValues>({});
+
+  // State for Step 11: Commit y and z
+  const [isYZCommitted, setIsYZCommitted] = useState<boolean>(false);
+
+  // State for Step 12: Verification
+  const [verificationStatus, setVerificationStatus] = useState<'idle' | 'running' | 'success' | 'failure'>('idle');
+  const [clientBitCheck, setClientBitCheck] = useState<'pending' | 'running' | 'passed' | 'failed'>('pending');
+  const [privateBitCheck, setPrivateBitCheck] = useState<'pending' | 'running' | 'passed' | 'failed'>('pending');
+  const [morraCheck, setMorraCheck] = useState<'pending' | 'running' | 'passed' | 'failed'>('pending');
+  const [homomorphicCheck, setHomomorphicCheck] = useState<'pending' | 'running' | 'passed' | 'failed'>('pending');
+
   const isStepCompleted = (stepName: string) => {
     return completedSteps.has(stepName);
   };
@@ -131,7 +152,6 @@ export default function GameScreen({ onBack }: GameScreenProps) {
     'compute-sum',
     'compute-z',
     'commit-pedersen',
-    'release-proofs',
     'verify'
   ], []);
 
@@ -162,7 +182,6 @@ export default function GameScreen({ onBack }: GameScreenProps) {
       'compute-sum',
       'compute-z',
       'commit-pedersen',
-      'release-proofs',
       'verify'
     ];
     const currentIndex = stepOrder.indexOf(step);
@@ -199,8 +218,6 @@ export default function GameScreen({ onBack }: GameScreenProps) {
         return "An auxiliary value z is computed to help in verifying the correctness of the computation without revealing private inputs.";
       case 'commit-pedersen':
         return "The final result and auxiliary value are committed using Pedersen commitments for verification.";
-      case 'release-proofs':
-        return "All necessary zero-knowledge proofs are released to allow verification of the computation's correctness.";
       case 'verify':
         return "The verifier checks all commitments and proofs to ensure the computation was performed correctly while maintaining privacy.";
       default:
@@ -252,7 +269,115 @@ export default function GameScreen({ onBack }: GameScreenProps) {
   // Generate and verify the proof
   const verifyProof = () => {
     // In a real implementation, this would generate a proper zero-knowledge proof
-    handleStepComplete('verify');
+    // For simulation, we perform the checks described
+    if (verificationStatus !== 'idle') return;
+
+    setVerificationStatus('running');
+    setClientBitCheck('running');
+    setPrivateBitCheck('pending');
+    setMorraCheck('pending');
+    setHomomorphicCheck('pending');
+
+    let overallResult = true;
+
+    // Simulate Check 1: Client Bit Validity (Σ-OR)
+    setTimeout(() => {
+      let clientBitsValid = false;
+      if (pedersenCommitments.length > 0) {
+          clientBitsValid = pedersenCommitments.every(c => c.x === 0 || c.x === 1);
+      }
+      setClientBitCheck(clientBitsValid ? 'passed' : 'failed');
+      if (!clientBitsValid) overallResult = false;
+      setPrivateBitCheck('running'); // Start next check
+
+      // Simulate Check 2: Private Bit Validity (Σ-OR on original vⱼ)
+      setTimeout(() => {
+        let privateBitsValid = false;
+        if (privateBits.length > 0) {
+            // Assuming privateBits state holds the original v_j values committed in step 5
+            privateBitsValid = privateBits.every(b => b.value === 0 || b.value === 1);
+        }
+        setPrivateBitCheck(privateBitsValid ? 'passed' : 'failed');
+        if (!privateBitsValid) overallResult = false;
+        setMorraCheck('running'); // Start next check
+
+        // Simulate Check 3: Morra Transcript
+        setTimeout(() => {
+          // Always passes in simulation (as Morra itself is simulated)
+          setMorraCheck('passed');
+          setHomomorphicCheck('running'); // Start next check
+
+          // Simulate Check 4: Homomorphic Consistency
+          setTimeout(() => {
+            let homomorphicPass = false;
+            const n_b = calculateNB(epsilon);
+            const nbOver2 = n_b / 2;
+            
+            if (
+              noisySumY !== null && 
+              zValue !== null && 
+              pedersenCommitments.length > 0 && 
+              privateBits.length > 0 && 
+              publicBits.length === privateBits.length && 
+              noiseBits.length === privateBits.length &&
+              n_b === privateBits.length // Ensure n_b matches actual bits length
+            ) {
+               // Check y (value part)
+               const sumX = pedersenCommitments.reduce((sum, c) => sum + c.x, 0);
+               const sumB = noiseBits.reduce((sum, b) => sum + b.value, 0); // noiseBits = v_j XOR b_j
+               // Recalculate y using the same formula as Step 9 to check consistency
+               const recalculatedY = Math.ceil(sumX + sumB - nbOver2);
+               const yCheck = recalculatedY === noisySumY;
+               console.log(`Homomorphic Y Check: Recalculated Y=${recalculatedY}, Expected Y=${noisySumY}, Check=${yCheck}`);
+
+               // Check z (randomness part)
+               const sumR = pedersenCommitments.reduce((sum, c) => sum + c.r, 0);
+               let sumSPrime = 0;
+               let sValuesPresent = true;
+               for (let j = 0; j < privateBits.length; j++) {
+                 const s_j = privateBits[j].s; // Original randomness from step 5 commit
+                 const b_j = publicBits[j].value; // Public bit from Morra (step 7)
+                 if (s_j !== undefined) {
+                    // Simulate s'_j calculation based on b_j (public bit)
+                    // In a real Pedersen commitment over a large group, this would involve field arithmetic.
+                    // For simulation, we approximate: s'_j = s_j if b_j=0, s'_j = 1-s_j if b_j=1
+                    // This is a placeholder and might not reflect exact cryptographic calculations.
+                    const s_prime_j = (b_j === 0) ? s_j : (1000000 - s_j); // Assuming s was < 1M
+                    sumSPrime += s_prime_j;
+                 } else {
+                    // If s_j is undefined (e.g., bit not committed), cannot perform check
+                    sValuesPresent = false;
+                    console.error(`Homomorphic Z Check Failed: Missing randomness s_${j}`);
+                    break;
+                 }
+               }
+
+               let zCheck = false;
+               if (sValuesPresent) {
+                  // Calculated Z based on homomorphism: sum(r_i) + sum(s'_j)
+                  const calculatedZ = sumR + sumSPrime;
+                  // Expected Z calculated in Step 10: sum(r_i) + sum(s_j)
+                  zCheck = calculatedZ === zValue;
+                  console.log(`Homomorphic Z Check: Calculated Z (sumR+sumSPrime)=${calculatedZ}, Expected Z (sumR+sumS)=${zValue}, Check=${zCheck}`);
+               } else {
+                   console.log(`Homomorphic Z Check: Skipped due to missing s_j values.`);
+               }
+
+               homomorphicPass = yCheck && zCheck;
+            } else {
+                console.error("Homomorphic Check Pre-conditions not met:", { noisySumY, zValue, clients: pedersenCommitments.length, privateBits: privateBits.length, publicBits: publicBits.length, noiseBits: noiseBits.length, n_b });
+            }
+
+            setHomomorphicCheck(homomorphicPass ? 'passed' : 'failed');
+            if (!homomorphicPass) overallResult = false;
+
+            // Final Status
+            setVerificationStatus(overallResult ? 'success' : 'failure');
+
+          }, 1200); // Homomorphic check delay
+        }, 800); // Morra check delay
+      }, 1000); // Private bit check delay
+    }, 1000); // Client bit check delay
   };
 
   // Define the component that renders a single cell in the virtualized grid
@@ -308,7 +433,7 @@ export default function GameScreen({ onBack }: GameScreenProps) {
 
     const bit = privateBits[index];
     const isCommitted = bit.committed;
-    const r = Math.floor(Math.random() * 1000000); // Random number for Pedersen commitment
+    const s = bit.s; // Use the stored s value
 
     return (
       <div style={style}>
@@ -337,8 +462,8 @@ export default function GameScreen({ onBack }: GameScreenProps) {
               <div>Sampled via: {bit.sampledVia}</div>
               {isCommitted && (
                 <>
-                  <div>Random r: {r}</div>
-                  <div>Commitment: g<sup>{bit.value}</sup>h<sup>{r}</sup></div>
+                  <div>Random s: {s}</div>
+                  <div>Commitment: g<sup>{bit.value}</sup>h<sup>{s}</sup></div>
                 </>
               )}
             </div>
@@ -352,9 +477,13 @@ export default function GameScreen({ onBack }: GameScreenProps) {
     if (isCommitting || privateBits.length === 0) return;
     setIsCommitting(true);
 
-    // Mark all bits as committed
+    // Mark all bits as committed and generate random s
     setPrivateBits(prev => 
-      prev.map(bit => ({ ...bit, committed: true }))
+      prev.map(bit => ({
+        ...bit,
+        committed: true,
+        s: Math.floor(Math.random() * 1000000) // Generate and store s
+      }))
     );
     
     // Set a timeout to complete the step after animations
@@ -775,6 +904,45 @@ export default function GameScreen({ onBack }: GameScreenProps) {
         }, 700); // Delay before showing noise value
       }, 700); // Delay before showing nb/2
     }, 500); // Initial delay
+  };
+
+  // Handler for Step 10: Compute z
+  const handleComputeZ = () => {
+    if (zCalculationProgress !== 0 || !isStepCompleted('compute-sum') || pedersenCommitments.length === 0 || privateBits.length === 0) return;
+
+    setZCalculationProgress(1); // Start calculation
+    setZValue(null);
+    setZIntermediateValues({});
+
+    // Simulate calculation steps with delays
+    setTimeout(() => {
+      // Step 10.1: Sum of r_i (from client commitments)
+      const sumR = pedersenCommitments.reduce((sum, commit) => sum + commit.r, 0);
+      setZIntermediateValues(prev => ({ ...prev, sumR }));
+
+      setTimeout(() => {
+        // Step 10.2: Sum of s_j (from private bit commitments)
+        // Ensure only committed bits with an 's' value are included
+        const sumS = privateBits.filter(bit => bit.committed && bit.s !== undefined).reduce((sum, bit) => sum + (bit.s ?? 0), 0);
+        setZIntermediateValues(prev => ({ ...prev, sumS }));
+
+        setTimeout(() => {
+          // Step 10.3: Calculate z = sumR + sumS
+          const finalZ = sumR + sumS;
+          setZValue(finalZ);
+          setZCalculationProgress(2); // Mark calculation as done
+        }, 700); // Delay before showing final Z
+      }, 700); // Delay before showing sumS
+    }, 500); // Initial delay
+  };
+
+  // Handler for Step 11: Commit y and z
+  const handleCommitYZ = () => {
+    if (isYZCommitted || noisySumY === null || zValue === null) return;
+    // Simulate commitment process
+    setTimeout(() => {
+      setIsYZCommitted(true);
+    }, 500); // Short delay for visual feedback
   };
 
   return (
@@ -1374,6 +1542,27 @@ export default function GameScreen({ onBack }: GameScreenProps) {
                    Proceed to Step 8: XOR Bits
                  </Button>
               )}
+
+              {/* Disclaimer about Commitment Updates */}
+              <div className="mt-6 p-4 bg-yellow-50 border border-yellow-200 rounded text-sm text-left text-gray-700 max-w-4xl mx-auto">
+                <p className="font-semibold mb-2">Note on Commitment Updates:</p>
+                <p className="mb-2">
+                  The Σ-OR (i.e. <code>O<sub>OR</sub></code>) check (Step 6) is only used on the initial private-coin commitments <code>c'<sub>j,k</sub> = Com(v<sub>j,k</sub>, s<sub>j,k</sub>)</code> to ensure each <code>v<sub>j,k</sub></code> ∈ {'{0, 1}'}.
+                </p>
+                <p className="mb-2">
+                  After the public bits <code>b<sub>j,k</sub></code> arrive from Morra (this step), the prover updates these commitments homomorphically based on the public bit value:
+                </p>
+                <ul className="list-disc list-inside mb-2 ml-4 space-y-1 font-mono text-xs">
+                  <li>If <code>b<sub>j,k</sub> = 1</code>: &nbsp; <code>c'<sub>j,k</sub> ← Com(1,1) × c'<sub>j,k</sub><sup>-1</sup></code></li>
+                  <li>If <code>b<sub>j,k</sub> = 0</code>: &nbsp; <code>c'<sub>j,k</sub></code> remains unchanged</li>
+                </ul>
+                 <p className="mb-2">
+                  This effectively transforms <code>c'<sub>j,k</sub></code> into a commitment to <code>v<sub>j,k</sub> ⊕ b<sub>j,k</sub></code> (which becomes <code>b<sub>i</sub></code> in Step 8).
+                </p>
+                 <p>
+                  No further Σ-OR checks are performed on these updated commitments. The correctness of this update (ensuring the committed value remains binary and the XOR was performed correctly) is verified globally in the final step (Step 13) via the homomorphic consistency check: <code>(∏<sub>i</sub> c<sub>i,k</sub>) × (∏<sub>j</sub> c'<sub>j,k</sub>) = Com(y<sub>k</sub>, z<sub>k</sub>)</code>.
+                </p>
+              </div>
             </div>
             <div className={`p-8 text-center border rounded transition-all relative w-full flex flex-col justify-center items-center min-h-[200px] ${getStepStyle('xor-bits')}`}>
               <StepHeader step="xor-bits" title="Step 8: XOR Private & Public Bits (bᵢ = b'ᵢ ⊕ zᵢ)" />
@@ -1447,37 +1636,40 @@ export default function GameScreen({ onBack }: GameScreenProps) {
                 </Button>
 
                 {calculationProgress > 0 && noiseBits.length > 0 && (
-                  <div className="calculation-details w-full max-w-xl p-6 bg-blue-50 rounded-lg border border-blue-200 space-y-4 text-left text-lg">
+                  <div className="calculation-details w-full max-w-xl p-6 bg-gray-50 rounded-lg border border-gray-200 space-y-4 text-left text-base text-black">
                     {intermediateValues.sumNoise !== undefined && (
                       <div className="fade-in-step">
-                        Sum of Noise Bits (Σ bᵢ): <span className="font-mono font-semibold text-blue-700">{intermediateValues.sumNoise.toLocaleString()}</span>
+                        Sum of Noise Bits (Σ bᵢ): <span className="font-mono font-semibold">{intermediateValues.sumNoise.toLocaleString()}</span>
                       </div>
                     )}
                     {intermediateValues.nbOver2 !== undefined && (
                       <div className="fade-in-step" style={{ animationDelay: '0.7s' }}>
-                        Target Noise Offset (n<sub>b</sub>/2): <span className="font-mono font-semibold text-blue-700">{intermediateValues.nbOver2.toLocaleString()}</span>
+                        Target Noise Offset (n<sub>b</sub>/2): <span className="font-mono font-semibold">{intermediateValues.nbOver2.toLocaleString()}</span>
                       </div>
                     )}
                     {intermediateValues.noiseVal !== undefined && (
-                      <div className="fade-in-step font-bold text-blue-800" style={{ animationDelay: '1.4s' }}>
+                      <div className="fade-in-step font-semibold" style={{ animationDelay: '1.4s' }}>
                         Differential Privacy Noise = (Σ bᵢ) - (n<sub>b</sub>/2) = <span className="font-mono">{intermediateValues.noiseVal.toLocaleString()}</span>
                       </div>
                     )}
                     {noisySumY !== null && (
                       <div className="fade-in-step mt-6 pt-4 border-t border-blue-200" style={{ animationDelay: '2.1s' }}>
-                        <div className="mb-2">Hidden Count Sum (Step 1): <span className="font-mono font-semibold text-gray-700">{count.toLocaleString()}</span></div>
-                        <div className="mb-2">DP Noise (calculated above): <span className="font-mono font-semibold text-blue-700">{intermediateValues.noiseVal?.toLocaleString()}</span></div>
-                        <div className="text-xl text-gray-800">
+                        <div className="mb-2">Hidden Count Sum (Step 1): <span className="font-mono font-semibold">{count.toLocaleString()}</span></div>
+                        <div className="mb-2">DP Noise (calculated above): <span className="font-mono font-semibold">{intermediateValues.noiseVal?.toLocaleString()}</span></div>
+                        <div className="text-base mb-1">
                           Intermediate Noisy Sum = <span className="font-mono">{intermediateValues.originalNoisySumY?.toLocaleString()}</span>
                         </div>
-                        {/* Show rounding step only if original value is different from rounded value */}                   
+                        {/* Show rounding step only if original value is different from rounded value */}
                         {intermediateValues.originalNoisySumY !== noisySumY && (
-                          <div className="text-sm text-blue-600 italic mt-1">
+                          <div className="text-sm italic mt-1">
                             Rounding up: <span className="font-mono">{intermediateValues.originalNoisySumY?.toLocaleString()} ≈ {noisySumY.toLocaleString()}</span>
                           </div>
                         )}
-                        <div className="text-2xl font-bold text-black mt-2">
-                          Final Noisy Sum (y) = <span className="font-mono">{noisySumY.toLocaleString()}</span>
+                        {/* Style the final sum */}
+                        <div className="mt-4 p-2 border border-blue-700 bg-blue-50 rounded inline-block">
+                            <div className="text-xl font-bold text-blue-700">
+                              Final Noisy Sum (y) = <span className="font-mono text-blue-700">{noisySumY.toLocaleString()}</span>
+                            </div>
                         </div>
                       </div>
                     )}
@@ -1499,41 +1691,124 @@ export default function GameScreen({ onBack }: GameScreenProps) {
             </div>
             <div className={`p-8 text-center border rounded transition-all relative w-full flex flex-col justify-between min-h-[200px] ${getStepStyle('compute-z')}`}>
               <StepHeader step="compute-z" title="Step 10: Compute z" />
-              <Button 
-                onClick={() => handleStepComplete('commit-pedersen')}
-                disabled={!isStepEnabled('compute-z') || !isStepCompleted('compute-sum') || step !== 'compute-z'}
-              >
-                Compute z
-              </Button>
+              <div className="flex flex-col items-center gap-4 w-full">
+                <div className="text-lg text-gray-700 font-mono p-4 bg-gray-100 rounded border mb-4">
+                  z = Σ rᵢ + Σ sⱼ
+                </div>
+                <Button 
+                  onClick={handleComputeZ}
+                  disabled={!isStepEnabled('compute-z') || !isStepCompleted('compute-sum') || step !== 'compute-z' || zCalculationProgress === 1 || pedersenCommitments.length === 0 || privateBits.length === 0}
+                  className="px-6 py-3 text-lg mb-6"
+                >
+                  {zCalculationProgress === 0 ? "Compute z" : zCalculationProgress === 1 ? "Calculating..." : "z Calculation Complete"}
+                </Button>
+
+                {zCalculationProgress > 0 && (
+                  <div className="calculation-details w-full max-w-xl p-6 bg-gray-50 rounded-lg border border-gray-200 space-y-4 text-left text-base text-black">
+                    {zIntermediateValues.sumR !== undefined && (
+                      <div className="fade-in-step">
+                        Sum of client random values (Σ rᵢ): <span className="font-mono font-semibold">{zIntermediateValues.sumR.toLocaleString()}</span>
+                      </div>
+                    )}
+                    {zIntermediateValues.sumS !== undefined && (
+                      <div className="fade-in-step" style={{ animationDelay: '0.7s' }}>
+                        Sum of private bit random values (Σ sⱼ): <span className="font-mono font-semibold">{zIntermediateValues.sumS.toLocaleString()}</span>
+                      </div>
+                    )}
+                    {zValue !== null && (
+                      <div className="fade-in-step mt-6 pt-4 border-t border-blue-200 font-semibold" style={{ animationDelay: '1.4s' }}>
+                        Final z = (Σ rᵢ) + (Σ sⱼ) = 
+                        <span className="font-mono ml-2 p-2 border border-blue-700 bg-blue-50 rounded text-xl text-blue-700">{zValue.toLocaleString()}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {(pedersenCommitments.length === 0 || privateBits.length === 0) && step === 'compute-z' && isStepCompleted('compute-sum') && (
+                   <p className="text-red-500">Cannot compute z: Commitment data (rᵢ or sⱼ) is missing.</p>
+                )}
+              </div>
+              {zCalculationProgress === 2 && (
+                <Button
+                  onClick={() => handleStepComplete('commit-pedersen')}
+                  disabled={step !== 'compute-z'}
+                  className="mt-6 py-4 px-8 text-lg"
+                >
+                  Proceed to Step 11: Commit Com(y,z)
+                </Button>
+              )}
             </div>
-            <div className={`p-8 text-center border rounded transition-all relative w-full flex flex-col justify-between min-h-[200px] ${getStepStyle('commit-pedersen')}`}>
-              <StepHeader step="commit-pedersen" title="Step 11: Commit Pedersen" />
-              <Button 
-                onClick={() => handleStepComplete('release-proofs')}
-                disabled={!isStepEnabled('commit-pedersen') || !isStepCompleted('compute-z') || step !== 'commit-pedersen'}
-              >
-                Commit Com(y,z)
-              </Button>
-            </div>
-            <div className={`p-8 text-center border rounded transition-all relative w-full flex flex-col justify-between min-h-[200px] ${getStepStyle('release-proofs')}`}>
-              <StepHeader step="release-proofs" title="Step 12: Release Proofs" />
-              <Button 
-                onClick={() => handleStepComplete('verify')}
-                disabled={!isStepEnabled('release-proofs') || !isStepCompleted('commit-pedersen') || step !== 'release-proofs'}
-              >
-                Release All Proofs
-              </Button>
+            <div className={`p-8 text-center border rounded transition-all relative w-full flex flex-col justify-center items-center min-h-[200px] ${getStepStyle('commit-pedersen')}`}>
+              <StepHeader step="commit-pedersen" title="Step 11: Commit y and z (Com(y,z))" />
+              <div className="flex flex-col items-center gap-6 w-full">
+                {!isYZCommitted ? (
+                  <Button 
+                    onClick={handleCommitYZ}
+                    disabled={!isStepEnabled('commit-pedersen') || !isStepCompleted('compute-z') || step !== 'commit-pedersen' || noisySumY === null || zValue === null}
+                    className="px-6 py-3 text-lg"
+                  >
+                    Commit Com(y,z)
+                  </Button>
+                ) : (
+                  <div className="fade-in-step w-48 h-48 bg-green-500 rounded-lg shadow-md flex items-center justify-center tooltip">
+                    <span className="text-white text-2xl font-bold">Com(y,z)</span>
+                    <div className="tooltiptext">
+                      <div className="text-sm whitespace-nowrap p-1">
+                        <div>Commitment: g<sup>y</sup>h<sup>z</sup></div>
+                        <div>y (Noisy Sum): {noisySumY?.toLocaleString()}</div>
+                        <div>z (Sum of Randomness): {zValue?.toLocaleString()}</div>
+                        <div>(g, h are public parameters)</div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {isYZCommitted && (
+                  <Button
+                    onClick={() => handleStepComplete('verify')}
+                    disabled={step !== 'commit-pedersen'}
+                    className="mt-6 py-4 px-8 text-lg"
+                  >
+                    Proceed to Step 12: Verification
+                  </Button>
+                )}
+                 {(noisySumY === null || zValue === null) && step === 'commit-pedersen' && isStepCompleted('compute-z') && (
+                   <p className="text-red-500 mt-4">Cannot commit: Values y or z are missing.</p>
+                 )}
+              </div>
             </div>
             <div className={`p-8 text-center border rounded transition-all relative w-full flex flex-col justify-between min-h-[200px] ${getStepStyle('verify')}`}>
-              <StepHeader step="verify" title="Step 13: Verification" />
-              <div className="verification-visual">
-                <p>Verifier checking all commitments and proofs...</p>
+              <StepHeader step="verify" title="Step 12: Verification" />
+              <div className="flex flex-col items-center gap-6 w-full">
                 <Button 
                   onClick={verifyProof}
-                  disabled={!isStepEnabled('verify') || !isStepCompleted('release-proofs') || step !== 'verify'}
+                  disabled={!isStepEnabled('verify') || !isStepCompleted('commit-pedersen') || step !== 'verify' || verificationStatus === 'running'}
+                  className="px-6 py-3 text-lg"
                 >
-                  Complete Verification
+                  {verificationStatus === 'idle' && "Start Verification"}
+                  {verificationStatus === 'running' && "Verifying..."}
+                  {(verificationStatus === 'success' || verificationStatus === 'failure') && "Run Verification Again"}
                 </Button>
+
+                {verificationStatus !== 'idle' && (
+                  <div className="w-full max-w-md p-4 border rounded-lg bg-gray-50 space-y-3">
+                    <VerificationCheckItem label="Client Input Bits Valid (Σ-OR)" status={clientBitCheck} />
+                    <VerificationCheckItem label="Private Noise Bits Valid (Σ-OR)" status={privateBitCheck} />
+                    <VerificationCheckItem label="Morra Transcript Correct" status={morraCheck} />
+                    <VerificationCheckItem label="Homomorphic Consistency (∏cᵢ * ∏c'ⱼ = Com(y,z))" status={homomorphicCheck} />
+                  </div>
+                )}
+
+                {verificationStatus === 'success' && (
+                  <div className="mt-4 p-4 bg-green-100 text-green-800 rounded-lg font-semibold text-lg">
+                    ✅ Verification Successful!
+                  </div>
+                )}
+                {verificationStatus === 'failure' && (
+                  <div className="mt-4 p-4 bg-red-100 text-red-800 rounded-lg font-semibold text-lg">
+                    ❌ Verification Failed!
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -1541,4 +1816,39 @@ export default function GameScreen({ onBack }: GameScreenProps) {
       </div>
     </div>
   );
-} 
+}
+
+// Helper component for displaying verification check status
+const VerificationCheckItem = ({ label, status }: { label: string, status: 'pending' | 'running' | 'passed' | 'failed' }) => {
+  const getStatusIcon = () => {
+    switch (status) {
+      case 'pending': return <span className="text-gray-400">⏳</span>;
+      case 'running': return <span className="animate-spin">⚙️</span>;
+      case 'passed': return <span className="text-green-500">✔️</span>;
+      case 'failed': return <span className="text-red-500">❌</span>;
+      default: return null;
+    }
+  };
+
+  const getStatusText = () => {
+     switch (status) {
+      case 'pending': return "Pending";
+      case 'running': return "Running";
+      case 'passed': return "Passed";
+      case 'failed': return "Failed";
+      default: return "";
+    }
+  }
+
+  return (
+    <div className="flex items-center justify-between text-sm">
+      <span className="text-gray-700">{label}</span>
+      <div className="flex items-center gap-2">
+         <span className={`font-medium ${status === 'passed' ? 'text-green-600' : status === 'failed' ? 'text-red-600' : 'text-gray-500'}`}>
+           {getStatusText()}
+         </span>
+        {getStatusIcon()}
+      </div>
+    </div>
+  );
+};
