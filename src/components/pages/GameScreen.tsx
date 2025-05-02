@@ -5,6 +5,8 @@ import { Button } from '../ui/button';
 import { useCSVReader } from 'react-papaparse';
 import MorraAnimation from '../morra/MorraAnimation';
 
+const API_BASE_URL = 'http://127.0.0.1:9537';
+
 interface GameScreenProps {
   onBack: () => void;
 }
@@ -18,7 +20,7 @@ interface ClientInput {
 interface PedersenCommitment {
   id: number;
   x: number;  // The input value
-  r: number;  // Random number
+  value: number;  // Random number
   status: 'pending' | 'committing' | 'committed';
   animationDelay?: number;  // Add animation delay property
 }
@@ -71,6 +73,10 @@ interface CalculationIntermediateValues {
 interface ZIntermediateValues {
   sumR?: number;
   sumS?: number;
+}
+
+interface CommitsResponse {
+  commits: string[];
 }
 
 export default function GameScreen({ onBack }: GameScreenProps) {
@@ -134,6 +140,9 @@ export default function GameScreen({ onBack }: GameScreenProps) {
   const [privateBitCheck, setPrivateBitCheck] = useState<'pending' | 'running' | 'passed' | 'failed'>('pending');
   const [morraCheck, setMorraCheck] = useState<'pending' | 'running' | 'passed' | 'failed'>('pending');
   const [homomorphicCheck, setHomomorphicCheck] = useState<'pending' | 'running' | 'passed' | 'failed'>('pending');
+
+  // States for backend integration
+  const [sessionId, setSessionId] = useState<string | null>(null);
 
   const isStepCompleted = (stepName: string) => {
     return completedSteps.has(stepName);
@@ -240,21 +249,36 @@ export default function GameScreen({ onBack }: GameScreenProps) {
   );
 
   // Optimize the handleCommitInputs function
-  const handleCommitInputs = useCallback(() => {
+  const handleCommitInputs = useCallback(async () => {
     if (isCommitting || clients.length === 0) return;
     setIsCommitting(true);
 
-    // Create all commitments at once with animation delays
-    const newCommitments: PedersenCommitment[] = clients.map((client, index) => ({
-      id: client.id,
-      x: client.value,
-      r: Math.floor(Math.random() * 1000000),
-      status: 'pending',
-      animationDelay: (index / clients.length) * 2
-    }));
+    // Send commitments to backend
+    const response = await fetch(`${API_BASE_URL}/commits`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: sessionId
+    });
 
-    // Update state once with all commitments
-    setPedersenCommitments(newCommitments);
+    if (response.ok) {
+        const data = (await response.json()) as CommitsResponse;
+        console.log("Commits:", data.commits);
+
+        const newCommitments: PedersenCommitment[] = clients.map((client, index) => ({
+          id: client.id,
+          x: client.value,
+          value: parseInt(data.commits[index], 10),
+          status: 'pending',
+          animationDelay: (index / clients.length) * 2
+        }));
+
+        setPedersenCommitments(newCommitments);
+    } else {
+        console.error("Failed to get commits:", response.status, response.statusText);
+        return undefined;
+    }
     
     // Set a timeout to mark all commitments as committed after animations
     setTimeout(() => {
@@ -264,121 +288,8 @@ export default function GameScreen({ onBack }: GameScreenProps) {
       setIsCommitting(false);
       handleStepComplete('set-epsilon');
     }, 1000);
-  }, [isCommitting, clients, handleStepComplete]);
-
-  // Generate and verify the proof
-  const verifyProof = () => {
-    // In a real implementation, this would generate a proper zero-knowledge proof
-    // For simulation, we perform the checks described
-    if (verificationStatus !== 'idle') return;
-
-    setVerificationStatus('running');
-    setClientBitCheck('running');
-    setPrivateBitCheck('pending');
-    setMorraCheck('pending');
-    setHomomorphicCheck('pending');
-
-    let overallResult = true;
-
-    // Simulate Check 1: Client Bit Validity (Σ-OR)
-    setTimeout(() => {
-      let clientBitsValid = false;
-      if (pedersenCommitments.length > 0) {
-          clientBitsValid = pedersenCommitments.every(c => c.x === 0 || c.x === 1);
-      }
-      setClientBitCheck(clientBitsValid ? 'passed' : 'failed');
-      if (!clientBitsValid) overallResult = false;
-      setPrivateBitCheck('running'); // Start next check
-
-      // Simulate Check 2: Private Bit Validity (Σ-OR on original vⱼ)
-      setTimeout(() => {
-        let privateBitsValid = false;
-        if (privateBits.length > 0) {
-            // Assuming privateBits state holds the original v_j values committed in step 5
-            privateBitsValid = privateBits.every(b => b.value === 0 || b.value === 1);
-        }
-        setPrivateBitCheck(privateBitsValid ? 'passed' : 'failed');
-        if (!privateBitsValid) overallResult = false;
-        setMorraCheck('running'); // Start next check
-
-        // Simulate Check 3: Morra Transcript
-        setTimeout(() => {
-          // Always passes in simulation (as Morra itself is simulated)
-          setMorraCheck('passed');
-          setHomomorphicCheck('running'); // Start next check
-
-          // Simulate Check 4: Homomorphic Consistency
-          setTimeout(() => {
-            let homomorphicPass = false;
-            const n_b = calculateNB(epsilon);
-            const nbOver2 = n_b / 2;
-            
-            if (
-              noisySumY !== null && 
-              zValue !== null && 
-              pedersenCommitments.length > 0 && 
-              privateBits.length > 0 && 
-              publicBits.length === privateBits.length && 
-              noiseBits.length === privateBits.length &&
-              n_b === privateBits.length // Ensure n_b matches actual bits length
-            ) {
-               // Check y (value part)
-               const sumX = pedersenCommitments.reduce((sum, c) => sum + c.x, 0);
-               const sumB = noiseBits.reduce((sum, b) => sum + b.value, 0); // noiseBits = v_j XOR b_j
-               // Recalculate y using the same formula as Step 9 to check consistency
-               const recalculatedY = Math.ceil(sumX + sumB - nbOver2);
-               const yCheck = recalculatedY === noisySumY;
-               console.log(`Homomorphic Y Check: Recalculated Y=${recalculatedY}, Expected Y=${noisySumY}, Check=${yCheck}`);
-
-               // Check z (randomness part)
-               const sumR = pedersenCommitments.reduce((sum, c) => sum + c.r, 0);
-               let sumSPrime = 0;
-               let sValuesPresent = true;
-               for (let j = 0; j < privateBits.length; j++) {
-                 const s_j = privateBits[j].s; // Original randomness from step 5 commit
-                 const b_j = publicBits[j].value; // Public bit from Morra (step 7)
-                 if (s_j !== undefined) {
-                    // Simulate s'_j calculation based on b_j (public bit)
-                    // In a real Pedersen commitment over a large group, this would involve field arithmetic.
-                    // For simulation, we approximate: s'_j = s_j if b_j=0, s'_j = 1-s_j if b_j=1
-                    // This is a placeholder and might not reflect exact cryptographic calculations.
-                    const s_prime_j = (b_j === 0) ? s_j : (1000000 - s_j); // Assuming s was < 1M
-                    sumSPrime += s_prime_j;
-                 } else {
-                    // If s_j is undefined (e.g., bit not committed), cannot perform check
-                    sValuesPresent = false;
-                    console.error(`Homomorphic Z Check Failed: Missing randomness s_${j}`);
-                    break;
-                 }
-               }
-
-               let zCheck = false;
-               if (sValuesPresent) {
-                  // Calculated Z based on homomorphism: sum(r_i) + sum(s'_j)
-                  const calculatedZ = sumR + sumSPrime;
-                  // Expected Z calculated in Step 10: sum(r_i) + sum(s_j)
-                  zCheck = calculatedZ === zValue;
-                  console.log(`Homomorphic Z Check: Calculated Z (sumR+sumSPrime)=${calculatedZ}, Expected Z (sumR+sumS)=${zValue}, Check=${zCheck}`);
-               } else {
-                   console.log(`Homomorphic Z Check: Skipped due to missing s_j values.`);
-               }
-
-               homomorphicPass = yCheck && zCheck;
-            } else {
-                console.error("Homomorphic Check Pre-conditions not met:", { noisySumY, zValue, clients: pedersenCommitments.length, privateBits: privateBits.length, publicBits: publicBits.length, noiseBits: noiseBits.length, n_b });
-            }
-
-            setHomomorphicCheck(homomorphicPass ? 'passed' : 'failed');
-            if (!homomorphicPass) overallResult = false;
-
-            // Final Status
-            setVerificationStatus(overallResult ? 'success' : 'failure');
-
-          }, 1200); // Homomorphic check delay
-        }, 800); // Morra check delay
-      }, 1000); // Private bit check delay
-    }, 1000); // Client bit check delay
-  };
+      
+  }, [isCommitting, clients, handleStepComplete, sessionId]);
 
   // Define the component that renders a single cell in the virtualized grid
   const Cell = useCallback(({ columnIndex, rowIndex, style }: { columnIndex: number; rowIndex: number; style: React.CSSProperties }) => {
@@ -414,8 +325,7 @@ export default function GameScreen({ onBack }: GameScreenProps) {
             <div className="text-sm whitespace-nowrap">
               <div>Client {index + 1}:</div>
               <div>Bit: {commit.x}</div>
-              <div>Random r: {commit.r}</div>
-              <div>Commitment: g<sup>{commit.x}</sup>h<sup>{commit.r}</sup></div>
+              <div>Value: {commit.value}</div>
             </div>
           </div>
         </div>
@@ -473,6 +383,31 @@ export default function GameScreen({ onBack }: GameScreenProps) {
     );
   }, [privateBits, isCommitting]);
 
+  const sendPrivateBitsToBackend = useCallback(async (privateBits: PrivateBit[]) => {
+    // Send commitments to backend
+    const response = await fetch(`${API_BASE_URL}/randomness`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ 
+        bits: privateBits.map(bit => bit.value),
+        session_id: JSON.parse(sessionId || '{"session_id": ""}').session_id
+      })
+    });
+    if (response.ok) {
+        console.log("Randomness Input: sent");
+    } else {
+        console.error("Failed to send randomness:", response.status, response.statusText);
+        try {
+            const errorData = await response.json();
+            console.error("Error details:", errorData);
+        } catch (e) {
+            console.error("Error details:", e);
+        }
+    }
+  }, [sessionId]);
+
   const handleCommitPrivateBits = useCallback(() => {
     if (isCommitting || privateBits.length === 0) return;
     setIsCommitting(true);
@@ -482,10 +417,9 @@ export default function GameScreen({ onBack }: GameScreenProps) {
       prev.map(bit => ({
         ...bit,
         committed: true,
-        s: Math.floor(Math.random() * 1000000) // Generate and store s
       }))
     );
-    
+
     // Set a timeout to complete the step after animations
     setTimeout(() => {
       setIsCommitting(false);
@@ -562,7 +496,7 @@ export default function GameScreen({ onBack }: GameScreenProps) {
     }
   };
 
-  const processSelectedColumn = () => {
+  const processSelectedColumn = async () => {
     if (!selectedColumn) return;
 
     const column = csvColumns.find(col => col.name === selectedColumn);
@@ -587,6 +521,32 @@ export default function GameScreen({ onBack }: GameScreenProps) {
     setCount(newClients.reduce((sum, client) => sum + client.value, 0));
     setDisplayedClientCount(newClients.length);
     handleStepComplete('commit-inputs');
+
+    // Initialize session
+    const response = await fetch(`${API_BASE_URL}/new`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        n: newClients.length,
+        x: newClients.map(client => client.value)
+      })
+    });
+
+    if (response.ok) {
+      const sessionId = await response.text(); // Get the session ID as text
+      setSessionId(sessionId);
+      console.log("Session ID:", sessionId);
+    } else {
+      console.error("Failed to initialize session:", response.status, response.statusText);
+      try {
+        const errorData = await response.json();
+        console.error("Error details:", errorData);
+      } catch (e) {
+        console.error("Failed to parse error response:", e);
+      }
+    }
   };
 
   // Add function to calculate n_b based on epsilon
@@ -733,8 +693,9 @@ export default function GameScreen({ onBack }: GameScreenProps) {
     setSamplingMethod('probability');
   };
 
-  const handleConfirmPrivateBits = () => {
+  const handleConfirmPrivateBits = (privateBits: PrivateBit[]) => {
     handleStepComplete('commit-bits');
+    sendPrivateBitsToBackend(privateBits);
   };
 
   const resetSamplingMethod = () => {
@@ -903,36 +864,6 @@ export default function GameScreen({ onBack }: GameScreenProps) {
           }, 700); // Delay before showing final sum
         }, 700); // Delay before showing noise value
       }, 700); // Delay before showing nb/2
-    }, 500); // Initial delay
-  };
-
-  // Handler for Step 10: Compute z
-  const handleComputeZ = () => {
-    if (zCalculationProgress !== 0 || !isStepCompleted('compute-sum') || pedersenCommitments.length === 0 || privateBits.length === 0) return;
-
-    setZCalculationProgress(1); // Start calculation
-    setZValue(null);
-    setZIntermediateValues({});
-
-    // Simulate calculation steps with delays
-    setTimeout(() => {
-      // Step 10.1: Sum of r_i (from client commitments)
-      const sumR = pedersenCommitments.reduce((sum, commit) => sum + commit.r, 0);
-      setZIntermediateValues(prev => ({ ...prev, sumR }));
-
-      setTimeout(() => {
-        // Step 10.2: Sum of s_j (from private bit commitments)
-        // Ensure only committed bits with an 's' value are included
-        const sumS = privateBits.filter(bit => bit.committed && bit.s !== undefined).reduce((sum, bit) => sum + (bit.s ?? 0), 0);
-        setZIntermediateValues(prev => ({ ...prev, sumS }));
-
-        setTimeout(() => {
-          // Step 10.3: Calculate z = sumR + sumS
-          const finalZ = sumR + sumS;
-          setZValue(finalZ);
-          setZCalculationProgress(2); // Mark calculation as done
-        }, 700); // Delay before showing final Z
-      }, 700); // Delay before showing sumS
     }, 500); // Initial delay
   };
 
@@ -1349,7 +1280,7 @@ export default function GameScreen({ onBack }: GameScreenProps) {
                         Reset Sampling Method
                       </Button>
                       <Button
-                        onClick={handleConfirmPrivateBits}
+                        onClick={() => handleConfirmPrivateBits(privateBits)}
                         className="text-sm"
                         disabled={!privateBits.length}
                       >
@@ -1696,7 +1627,7 @@ export default function GameScreen({ onBack }: GameScreenProps) {
                   z = Σ rᵢ + Σ sⱼ
                 </div>
                 <Button 
-                  onClick={handleComputeZ}
+                  // onClick={handleComputeZ}
                   disabled={!isStepEnabled('compute-z') || !isStepCompleted('compute-sum') || step !== 'compute-z' || zCalculationProgress === 1 || pedersenCommitments.length === 0 || privateBits.length === 0}
                   className="px-6 py-3 text-lg mb-6"
                 >
@@ -1781,7 +1712,7 @@ export default function GameScreen({ onBack }: GameScreenProps) {
               <StepHeader step="verify" title="Step 12: Verification" />
               <div className="flex flex-col items-center gap-6 w-full">
                 <Button 
-                  onClick={verifyProof}
+                  // onClick={verifyProof}
                   disabled={!isStepEnabled('verify') || !isStepCompleted('commit-pedersen') || step !== 'verify' || verificationStatus === 'running'}
                   className="px-6 py-3 text-lg"
                 >
