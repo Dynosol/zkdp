@@ -770,7 +770,7 @@ export default function GameScreen({ onBack }: GameScreenProps) {
   };
 
   const handleMorraComplete = async() => {
-    const response = await fetch('http://127.0.0.1:9537/public_random', { // Changed to POST
+    const response = await fetch(`${API_BASE_URL}/public_random`, { // Changed to POST
       method: 'POST',
       headers: {
           'Content-Type': 'application/json',
@@ -838,7 +838,7 @@ export default function GameScreen({ onBack }: GameScreenProps) {
     // }));
 
     // Get XOR bits from backend
-    const response = await fetch('http://127.0.0.1:9537/xor_bits', {  // Changed to POST
+    const response = await fetch(`${API_BASE_URL}/xor_bits`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -964,7 +964,7 @@ export default function GameScreen({ onBack }: GameScreenProps) {
     const finalY = Math.ceil(originalY);
 
     // Make API call
-    const response = await fetch('http://127.0.0.1:9537/compute_sum', {
+    const response = await fetch(`${API_BASE_URL}/compute_sum`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -1014,7 +1014,7 @@ export default function GameScreen({ onBack }: GameScreenProps) {
     setCalculationProgress(1);
     setZValue(null);
 
-    const response = await fetch('http://127.0.0.1:9537/z', {
+    const response = await fetch(`${API_BASE_URL}/z`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -1042,7 +1042,7 @@ export default function GameScreen({ onBack }: GameScreenProps) {
       setIsYZCommitted(true);
     }, 500); // Short delay for visual feedback
 
-    const response = await fetch('http://127.0.0.1:9537/commit_pedersons', {
+    const response = await fetch(`${API_BASE_URL}/commit_pedersons`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -1062,7 +1062,7 @@ export default function GameScreen({ onBack }: GameScreenProps) {
   const verifyProof = async () => {
     try {
       // Get LHS value
-      const lhsResponse = await fetch('http://127.0.0.1:9537/lhs', {
+      const lhsResponse = await fetch(`${API_BASE_URL}/lhs`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1081,7 +1081,7 @@ export default function GameScreen({ onBack }: GameScreenProps) {
       console.log("LHS:", lhsData.lhs);
 
       // Get RHS value
-      const rhsResponse = await fetch('http://127.0.0.1:9537/rhs', {
+      const rhsResponse = await fetch(`${API_BASE_URL}/rhs`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
