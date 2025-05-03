@@ -5,7 +5,7 @@ import { Button } from '../ui/button';
 import { useCSVReader } from 'react-papaparse';
 import MorraAnimation from '../morra/MorraAnimation';
 
-const API_BASE_URL = 'http://127.0.0.1:9537';
+const API_BASE_URL = 'https://zkdp-backend-production.up.railway.app';
 
 interface LhsResponse {
   lhs: number;
@@ -222,29 +222,29 @@ export default function GameScreen({ onBack }: GameScreenProps) {
   const getStepExplanation = (step: string) => {
     switch (step) {
       case 'input':
-        return "In this step, we collect binary inputs (0 or 1) from 1000 clients. Each client's input represents their private data point. The sum of these inputs will be computed privately in later steps using the ZKDP protocol.";
+        return "In this step, we collect binary inputs (0 or 1) from clients, where each input represents a private data point. These inputs will be aggregated while preserving privacy using the ZKDP protocol. The sum of these inputs will be used as the base for our differentially private computation.";
       case 'commit-inputs':
-        return "The curator commits to the raw inputs using a Pedersen commitment scheme. This creates a binding but hiding commitment that can be verified later without revealing the actual input.";
+        return "The curator commits to each raw input using a Pedersen commitment scheme, which creates a binding but hiding commitment. This commitment can be verified later without revealing the actual input value, ensuring both privacy and integrity of the data.";
       case 'set-epsilon':
-        return "The privacy parameters ε (epsilon) and δ (delta) are set to control the level of differential privacy. Epsilon (ε) determines the privacy budget - a smaller ε provides stronger privacy guarantees but may reduce accuracy. Delta (δ) represents the probability of privacy failure - a smaller δ means a lower chance of privacy violation. Together, (ε,δ)-differential privacy provides a rigorous mathematical guarantee that the presence or absence of any individual's data will not significantly affect the output of the computation.";
+        return "The privacy parameters ε (epsilon) and δ (delta) are set to control the level of differential privacy. A smaller ε provides stronger privacy but reduces accuracy, while δ represents the probability of privacy failure. These parameters determine how much noise we need to add to protect privacy.";
       case 'sample-bits':
-        return "n_b (determined by epsilon) private random bits are sampled. These bits will be used to add DP-noise to the computation.";
+        return "We sample n_b private random bits, where n_b is calculated based on the epsilon value. These bits form the basis of our noise generation mechanism. The randomness of these bits is crucial for providing differential privacy guarantees.";
       case 'commit-bits':
-        return "Clients commit to their private random bits using Pedersen commitments, similar to step 2. This ensures the bits cannot be changed later.";
+        return "The curator commits to the private random bits using Pedersen commitments. This step ensures the bits cannot be changed later and provides a way to verify the noise was generated honestly. The commitments will be used in later verification steps.";
       case 'prove-binary':
-        return "Clients generate zero-knowledge proofs that their committed values are binary (0 or 1). This ensures the integrity of the computation.";
+        return "Zero-knowledge proofs are generated to prove that all committed values are binary (0 or 1). This ensures the integrity of both the input data and noise bits. The proofs convince a verifier without revealing the actual values.";
       case 'morra':
-        return "A secure multi-party computation protocol (Morra) is used to generate public random bits that will be combined with the private bits.";
+        return "We use the Morra protocol to generate public random bits through secure multi-party computation. These bits will be combined with private bits to create unbiased noise. This step ensures the randomness cannot be manipulated by any single party.";
       case 'xor-bits':
-        return "The private and public bits are XORed together. This step helps in adding the necessary noise for differential privacy.";
+        return "The private and public random bits are XORed together to generate the final noise bits. This combination ensures the noise is both verifiable and truly random. The resulting bits will be used to add noise to our sum.";
       case 'compute-sum':
-        return "The sum of the noisy inputs is computed. The noise ensures differential privacy while maintaining reasonable accuracy.";
+        return "We compute the noisy sum by adding the differential privacy noise to the original sum. The noise is derived from the XORed bits in the previous step. This provides a differentially private result that protects individual privacy.";
       case 'compute-z':
-        return "An auxiliary value z is computed to help in verifying the correctness of the computation without revealing private inputs.";
+        return "We compute an auxiliary value z that combines the randomness used in all Pedersen commitments. This value will be used to verify that all steps were performed correctly. The z value helps prove the computation was honest without revealing private information.";
       case 'commit-pedersen':
-        return "The final result and auxiliary value are committed using Pedersen commitments for verification.";
+        return "The final noisy sum y and auxiliary value z are committed using a Pedersen commitment. This creates a binding commitment to both values that will be used in verification. The commitment ensures these values cannot be changed during verification.";
       case 'verify':
-        return "The verifier checks all commitments and proofs to ensure the computation was performed correctly while maintaining privacy.";
+        return "The verifier checks all commitments and proofs to ensure the computation was performed correctly. This step validates that differential privacy was properly applied and no tampering occurred. The verification succeeds only if all steps were performed honestly.";
       default:
         return "";
     }
@@ -1983,12 +1983,12 @@ export default function GameScreen({ onBack }: GameScreenProps) {
 
                 {verificationStatus === 'success' && (
                   <div className="mt-4 p-4 bg-green-100 text-green-800 rounded-lg font-semibold text-lg">
-                    ✅ Verification Successful!
+                    ✅ Verification Successful - I see that you did not lie!
                   </div>
                 )}
                 {verificationStatus === 'failure' && (
                   <div className="mt-4 p-4 bg-red-100 text-red-800 rounded-lg font-semibold text-lg">
-                    ❌ Verification Failed!
+                    ❌ Verification Failed - You are a liar!
                   </div>
                 )}
               </div>
