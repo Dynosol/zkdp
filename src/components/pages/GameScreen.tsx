@@ -7,6 +7,14 @@ import MorraAnimation from '../morra/MorraAnimation';
 
 const API_BASE_URL = 'http://127.0.0.1:9537';
 
+interface LhsResponse {
+  lhs: number;
+}
+
+interface RhsResponse {
+  rhs: number;
+}
+
 interface XorBitsResponse {
     xor_bits: number[];
 }
@@ -139,7 +147,7 @@ export default function GameScreen({ onBack }: GameScreenProps) {
   const [intermediateValues, setIntermediateValues] = useState<CalculationIntermediateValues>({});
 
   // State for Step 10: Compute Z
-  const [zValue] = useState<number | null>(null);
+  const [zValue, setZValue] = useState<number | null>(null);
   const [zCalculationProgress] = useState<number>(0); // 0: idle, 1: calculating, 2: done
   const [zIntermediateValues] = useState<ZIntermediateValues>({});
 
@@ -147,11 +155,7 @@ export default function GameScreen({ onBack }: GameScreenProps) {
   const [isYZCommitted, setIsYZCommitted] = useState<boolean>(false);
 
   // State for Step 12: Verification
-  const [verificationStatus,] = useState<'idle' | 'running' | 'success' | 'failure'>('idle');
-  const [clientBitCheck] = useState<'pending' | 'running' | 'passed' | 'failed'>('pending');
-  const [privateBitCheck] = useState<'pending' | 'running' | 'passed' | 'failed'>('pending');
-  const [morraCheck] = useState<'pending' | 'running' | 'passed' | 'failed'>('pending');
-  const [homomorphicCheck] = useState<'pending' | 'running' | 'passed' | 'failed'>('pending');
+  const [verificationStatus, setVerificationStatus] = useState<'idle' | 'running' | 'success' | 'failure'>('idle');
 
   // States for backend integration
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -1009,17 +1013,104 @@ export default function GameScreen({ onBack }: GameScreenProps) {
 
     setCalculationProgress(1);
     setZValue(null);
-    
+
+    const response = await fetch('http://127.0.0.1:9537/z', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        session_id: sessionId,
+      })
+    });
+
+    if (response.ok) {
+      const data = await response.json() as { z: number };
+      console.log("Z:", data.z);
+      setZValue(data.z);
+      handleStepComplete('commit-pedersen'); // Add this line to unlock step 11
+    } else {
+      console.error("Failed to compute z:", response.status, response.statusText);
+    }
   }
 
   // Handler for Step 11: Commit y and z
-  const handleCommitYZ = () => {
+  const handleCommitYZ = async () => {
     if (isYZCommitted || noisySumY === null || zValue === null) return;
     // Simulate commitment process
     setTimeout(() => {
       setIsYZCommitted(true);
     }, 500); // Short delay for visual feedback
+
+    const response = await fetch('http://127.0.0.1:9537/commit_pedersons', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        session_id: sessionId,
+      })
+    });
+
+    if (response.ok) {
+      console.log("Pedersen commitments committed");
+    } else {
+      console.error("Failed to commit pedersons:", response.status, response.statusText);
+    }
   };
+
+  const verifyProof = async () => {
+    try {
+      // Get LHS value
+      const lhsResponse = await fetch('http://127.0.0.1:9537/lhs', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          session_id: sessionId,
+        })
+      });
+
+      if (!lhsResponse.ok) {
+        console.error("Failed to get LHS:", lhsResponse.status, lhsResponse.statusText);
+        return false;
+      }
+
+      const lhsData = await lhsResponse.json() as LhsResponse;
+      console.log("LHS:", lhsData.lhs);
+
+      // Get RHS value
+      const rhsResponse = await fetch('http://127.0.0.1:9537/rhs', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          session_id: sessionId,
+        })
+      });
+
+      if (!rhsResponse.ok) {
+        console.error("Failed to get RHS:", rhsResponse.status, rhsResponse.statusText);
+        return false;
+      }
+
+      const rhsData = await rhsResponse.json() as RhsResponse;
+      console.log("RHS:", rhsData.rhs);
+
+      // Compare values and return result
+      return lhsData.lhs === rhsData.rhs;
+    } catch (error) {
+      console.error("Error during verification:", error);
+      return false;
+    }
+  }
+
+
+
+  
+  
 
   return (
     <div className="flex flex-col min-h-screen bg-gray-100">
@@ -1781,12 +1872,17 @@ export default function GameScreen({ onBack }: GameScreenProps) {
                   z = Σ rᵢ + Σ sⱼ
                 </div>
                 <Button 
-                  // onClick={handleComputeZ}
+                  onClick={handleComputeZ}
                   disabled={!isStepEnabled('compute-z') || !isStepCompleted('compute-sum') || step !== 'compute-z' || zCalculationProgress === 1 || pedersenCommitments.length === 0 || privateBits.length === 0}
                   className="px-6 py-3 text-lg mb-6"
                 >
                   {zCalculationProgress === 0 ? "Compute z" : zCalculationProgress === 1 ? "Calculating..." : "z Calculation Complete"}
                 </Button>
+                {zValue !== null && (
+                  <div className="text-sm text-blue-700 bg-blue-50 p-1 rounded border border-blue-200 mb-2">
+                    z = {zValue.toLocaleString()}
+                  </div>
+                )}
 
                 {zCalculationProgress > 0 && (
                   <div className="calculation-details w-full max-w-xl p-6 bg-gray-50 rounded-lg border border-gray-200 space-y-4 text-left text-base text-black">
@@ -1866,7 +1962,13 @@ export default function GameScreen({ onBack }: GameScreenProps) {
               <StepHeader step="verify" title="Step 12: Verification" />
               <div className="flex flex-col items-center gap-6 w-full">
                 <Button 
-                  // onClick={verifyProof}
+                  onClick={async () => {
+                    setVerificationStatus('running');
+                    setTimeout(async () => {
+                      const isValid = await verifyProof();
+                      setVerificationStatus(isValid ? 'success' : 'failure');
+                    }, 2000);
+                  }}
                   disabled={!isStepEnabled('verify') || !isStepCompleted('commit-pedersen') || step !== 'verify' || verificationStatus === 'running'}
                   className="px-6 py-3 text-lg"
                 >
@@ -1875,13 +1977,8 @@ export default function GameScreen({ onBack }: GameScreenProps) {
                   {(verificationStatus === 'success' || verificationStatus === 'failure') && "Run Verification Again"}
                 </Button>
 
-                {verificationStatus !== 'idle' && (
-                  <div className="w-full max-w-md p-4 border rounded-lg bg-gray-50 space-y-3">
-                    <VerificationCheckItem label="Client Input Bits Valid (Σ-OR)" status={clientBitCheck} />
-                    <VerificationCheckItem label="Private Noise Bits Valid (Σ-OR)" status={privateBitCheck} />
-                    <VerificationCheckItem label="Morra Transcript Correct" status={morraCheck} />
-                    <VerificationCheckItem label="Homomorphic Consistency (∏cᵢ * ∏c'ⱼ = Com(y,z))" status={homomorphicCheck} />
-                  </div>
+                {verificationStatus === 'running' && (
+                  <div className="animate-spin text-4xl">⚙️</div>
                 )}
 
                 {verificationStatus === 'success' && (
@@ -1902,38 +1999,3 @@ export default function GameScreen({ onBack }: GameScreenProps) {
     </div>
   );
 }
-
-// Helper component for displaying verification check status
-const VerificationCheckItem = ({ label, status }: { label: string, status: 'pending' | 'running' | 'passed' | 'failed' }) => {
-  const getStatusIcon = () => {
-    switch (status) {
-      case 'pending': return <span className="text-gray-400">⏳</span>;
-      case 'running': return <span className="animate-spin">⚙️</span>;
-      case 'passed': return <span className="text-green-500">✔️</span>;
-      case 'failed': return <span className="text-red-500">❌</span>;
-      default: return null;
-    }
-  };
-
-  const getStatusText = () => {
-     switch (status) {
-      case 'pending': return "Pending";
-      case 'running': return "Running";
-      case 'passed': return "Passed";
-      case 'failed': return "Failed";
-      default: return "";
-    }
-  }
-
-  return (
-    <div className="flex items-center justify-between text-sm">
-      <span className="text-gray-700">{label}</span>
-      <div className="flex items-center gap-2">
-         <span className={`font-medium ${status === 'passed' ? 'text-green-600' : status === 'failed' ? 'text-red-600' : 'text-gray-500'}`}>
-           {getStatusText()}
-         </span>
-        {getStatusIcon()}
-      </div>
-    </div>
-  );
-};
