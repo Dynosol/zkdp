@@ -7,6 +7,10 @@ import MorraAnimation from '../morra/MorraAnimation';
 
 const API_BASE_URL = 'http://127.0.0.1:9537';
 
+interface XorBitsResponse {
+    xor_bits: number[];
+}
+
 interface GameScreenProps {
   onBack: () => void;
 }
@@ -79,6 +83,14 @@ interface CommitsResponse {
   commits: string[];
 }
 
+interface PrivateCommitsResponse {
+  private_commits: string[];
+}
+
+interface RandomResponse {
+  random_bits: number[];
+}
+
 export default function GameScreen({ onBack }: GameScreenProps) {
   const [clients, setClients] = useState<ClientInput[]>([]);
   const [epsilon, setEpsilon] = useState<number>(1);
@@ -88,7 +100,7 @@ export default function GameScreen({ onBack }: GameScreenProps) {
   const [isCommitting, setIsCommitting] = useState<boolean>(false);
   const [pedersenCommitments, setPedersenCommitments] = useState<PedersenCommitment[]>([]);
   const [privateBits, setPrivateBits] = useState<PrivateBit[]>([]);
-  const [publicBits, setPublicBits] = useState<PublicBit[]>([]);
+  const [publicBits, setPublicBits] = useState<PublicBit[]>([]); // Remove setPublicBits since it's not used
   const [noiseBits, setNoiseBits] = useState<NoiseBit[]>([]);
   const [step, setStep] = useState<
     'input' | 
@@ -127,19 +139,19 @@ export default function GameScreen({ onBack }: GameScreenProps) {
   const [intermediateValues, setIntermediateValues] = useState<CalculationIntermediateValues>({});
 
   // State for Step 10: Compute Z
-  const [zValue, setZValue] = useState<number | null>(null);
-  const [zCalculationProgress, setZCalculationProgress] = useState<number>(0); // 0: idle, 1: calculating, 2: done
-  const [zIntermediateValues, setZIntermediateValues] = useState<ZIntermediateValues>({});
+  const [zValue] = useState<number | null>(null);
+  const [zCalculationProgress] = useState<number>(0); // 0: idle, 1: calculating, 2: done
+  const [zIntermediateValues] = useState<ZIntermediateValues>({});
 
   // State for Step 11: Commit y and z
   const [isYZCommitted, setIsYZCommitted] = useState<boolean>(false);
 
   // State for Step 12: Verification
-  const [verificationStatus, setVerificationStatus] = useState<'idle' | 'running' | 'success' | 'failure'>('idle');
-  const [clientBitCheck, setClientBitCheck] = useState<'pending' | 'running' | 'passed' | 'failed'>('pending');
-  const [privateBitCheck, setPrivateBitCheck] = useState<'pending' | 'running' | 'passed' | 'failed'>('pending');
-  const [morraCheck, setMorraCheck] = useState<'pending' | 'running' | 'passed' | 'failed'>('pending');
-  const [homomorphicCheck, setHomomorphicCheck] = useState<'pending' | 'running' | 'passed' | 'failed'>('pending');
+  const [verificationStatus,] = useState<'idle' | 'running' | 'success' | 'failure'>('idle');
+  const [clientBitCheck] = useState<'pending' | 'running' | 'passed' | 'failed'>('pending');
+  const [privateBitCheck] = useState<'pending' | 'running' | 'passed' | 'failed'>('pending');
+  const [morraCheck] = useState<'pending' | 'running' | 'passed' | 'failed'>('pending');
+  const [homomorphicCheck] = useState<'pending' | 'running' | 'passed' | 'failed'>('pending');
 
   // States for backend integration
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -259,7 +271,9 @@ export default function GameScreen({ onBack }: GameScreenProps) {
       headers: {
         'Content-Type': 'application/json',
       },
-      body: sessionId
+      body: JSON.stringify({
+        session_id: sessionId
+      })
     });
 
     if (response.ok) {
@@ -384,31 +398,38 @@ export default function GameScreen({ onBack }: GameScreenProps) {
   }, [privateBits, isCommitting]);
 
   const sendPrivateBitsToBackend = useCallback(async (privateBits: PrivateBit[]) => {
-    // Send commitments to backend
-    const response = await fetch(`${API_BASE_URL}/randomness`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ 
-        bits: privateBits.map(bit => bit.value),
-        session_id: JSON.parse(sessionId || '{"session_id": ""}').session_id
-      })
-    });
-    if (response.ok) {
-        console.log("Randomness Input: sent");
-    } else {
+    console.log("Sending private bits to backend", privateBits);
+    console.log("Bit values", privateBits.map(bit => bit.value));
+    
+    try {
+      // Send commitments to backend
+      const response = await fetch(`${API_BASE_URL}/randomness`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          session_id: sessionId,  // sessionId is already the correct format
+          bits: privateBits.map(bit => bit.value)
+        })
+      });
+
+      console.log("Response status:", response.status);
+      
+      if (response.ok) {
+        const data = await response.json();
+        console.log("Response data:", data);
+      } else {
         console.error("Failed to send randomness:", response.status, response.statusText);
-        try {
-            const errorData = await response.json();
-            console.error("Error details:", errorData);
-        } catch (e) {
-            console.error("Error details:", e);
-        }
+        const errorData = await response.json();
+        console.error("Error details:", errorData);
+      }
+    } catch (error) {
+      console.error("Network error:", error);
     }
   }, [sessionId]);
 
-  const handleCommitPrivateBits = useCallback(() => {
+  const handleCommitPrivateBits = useCallback(async () => {
     if (isCommitting || privateBits.length === 0) return;
     setIsCommitting(true);
 
@@ -419,6 +440,37 @@ export default function GameScreen({ onBack }: GameScreenProps) {
         committed: true,
       }))
     );
+
+    // Get commitment from backend
+    const response = await fetch(`${API_BASE_URL}/priv_random_commits`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        session_id: sessionId
+      })
+    });
+
+    if (response.ok) {
+        const data = (await response.json()) as PrivateCommitsResponse;
+        console.log("Commits:", data.private_commits);
+        console.log("data", data);
+
+        const newCommitments = privateBits.map((bit, index) => ({
+          id: index,
+          x: bit.value,
+          value: parseInt(data.private_commits[index], 10),
+          status: 'committed' as const,
+          animationDelay: index * 100
+        }));
+
+        setPedersenCommitments(newCommitments);
+    } else {
+        console.error("Failed to get commits:", response.status, response.statusText);
+        return undefined;
+    }
+
 
     // Set a timeout to complete the step after animations
     setTimeout(() => {
@@ -693,9 +745,14 @@ export default function GameScreen({ onBack }: GameScreenProps) {
     setSamplingMethod('probability');
   };
 
-  const handleConfirmPrivateBits = (privateBits: PrivateBit[]) => {
-    handleStepComplete('commit-bits');
-    sendPrivateBitsToBackend(privateBits);
+  const handleConfirmPrivateBits = async (privateBits: PrivateBit[]) => {
+    console.log("handleConfirmPrivateBits called with", privateBits.length, "bits");
+    try {
+      await sendPrivateBitsToBackend(privateBits);
+      handleStepComplete('commit-bits');
+    } catch (error) {
+      console.error("Error in handleConfirmPrivateBits:", error);
+    }
   };
 
   const resetSamplingMethod = () => {
@@ -708,14 +765,28 @@ export default function GameScreen({ onBack }: GameScreenProps) {
     setMorraAnimationCompleted(false);
   };
 
-  const handleMorraComplete = () => {
+  const handleMorraComplete = async() => {
+    const response = await fetch('http://127.0.0.1:9537/public_random', { // Changed to POST
+      method: 'POST',
+      headers: {
+          'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        session_id: sessionId,
+      })
+    });
+
+    if (response.ok) {
+      const data = (await response.json()) as RandomResponse;
+      console.log("Public Random Bits:", data.random_bits);
+      const generatedPublicBits = data.random_bits.map(value => ({ value }));
+      setPublicBits(generatedPublicBits);
+    } else {
+      console.error("Failed to get public random:", response.status, response.statusText);
+    }
+
     setMorraAnimationCompleted(true);
     // Generate n_b public bits when Morra completes
-    const n_b = calculateNB(epsilon);
-    const generatedPublicBits = Array(n_b).fill(0).map(() => ({
-      value: Math.random() < 0.5 ? 1 : 0,
-    }));
-    setPublicBits(generatedPublicBits);
   };
 
   // New component for Public Bits Grid
@@ -753,15 +824,35 @@ export default function GameScreen({ onBack }: GameScreenProps) {
     );
   }, [publicBits]);
 
-  const handleComputeXOR = () => {
+  const handleComputeXOR = async () => {
     if (privateBits.length === 0 || publicBits.length === 0 || privateBits.length !== publicBits.length) {
       console.error("Cannot compute XOR: Bit arrays mismatch or empty.");
       return;
     }
-    const resultBits = privateBits.map((privateBit, index) => ({
-      value: privateBit.value ^ publicBits[index].value,
-    }));
-    setNoiseBits(resultBits);
+    // const resultBits = privateBits.map((privateBit, index) => ({
+    //   value: privateBit.value ^ publicBits[index].value,
+    // }));
+
+    // Get XOR bits from backend
+    const response = await fetch('http://127.0.0.1:9537/xor_bits', {  // Changed to POST
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          session_id: sessionId
+        })
+    });
+
+    if (response.ok) {
+        const data = (await response.json()) as XorBitsResponse;
+        console.log("XOR Bits:", data.xor_bits);
+        setNoiseBits(data.xor_bits.map(bit => ({ value: bit })));
+    } else {
+        console.error("Failed to get XOR bits:", response.status, response.statusText);
+    }
+
+    // setNoiseBits(resultBits);
     setXorCompleted(true);
   };
 
@@ -790,6 +881,33 @@ export default function GameScreen({ onBack }: GameScreenProps) {
       setUniformityConfidenceInterval(null); // Reset if not completed or no bits
     }
   }, [noiseBits, xorCompleted]);
+
+  useEffect(() => {
+    const resetScroll = () => {
+      requestAnimationFrame(() => {
+        window.scrollTo(0, 0);
+        document.documentElement.scrollTop = 0;
+        document.body.scrollTop = 0;
+      });
+    };
+
+    // Reset on mount
+    resetScroll();
+
+    // Reset on navigation events
+    window.addEventListener('popstate', resetScroll);
+    window.addEventListener('beforeunload', resetScroll);
+    window.addEventListener('load', resetScroll);
+    window.addEventListener('DOMContentLoaded', resetScroll);
+
+    // Cleanup
+    return () => {
+      window.removeEventListener('popstate', resetScroll);
+      window.removeEventListener('beforeunload', resetScroll);
+      window.removeEventListener('load', resetScroll);
+      window.removeEventListener('DOMContentLoaded', resetScroll);
+    };
+  }, []);
 
   // Reusable Static Bit Grid Component for Step 8 display
   const StaticBitGrid = ({ bits, label, colorTheme }: { bits: {value: number}[], label: string, colorTheme: 'blue' | 'green' }) => {
@@ -826,46 +944,73 @@ export default function GameScreen({ onBack }: GameScreenProps) {
   };
 
   // Handler for Step 9: Compute Sum (y)
-  const handleComputeSumY = () => {
+  const handleComputeSumY = async () => {
     if (calculationProgress !== 0 || noiseBits.length === 0) return;
 
     setCalculationProgress(1);
     setNoisySumY(null);
     setIntermediateValues({});
 
-    // Simulate calculation steps with delays for animation
+    // Calculate all values first
+    const sumNoise = noiseBits.reduce((sum, bit) => sum + bit.value, 0);
+    const n_b = calculateNB(epsilon);
+    const nbOver2 = n_b / 2;
+    const noiseVal = sumNoise - nbOver2;
+    const originalY = count + noiseVal;
+    const finalY = Math.ceil(originalY);
+
+    // Make API call
+    const response = await fetch('http://127.0.0.1:9537/compute_sum', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        session_id: sessionId
+      })
+    });
+
+    let apiSum: number | undefined;
+    if (response.ok) {
+      const data = await response.json() as { final_sum: number };
+      console.log("Final Sum:", data.final_sum);
+      apiSum = data.final_sum;
+      console.log("API Sum:", apiSum);
+    } else {
+      console.error("Failed to compute sum:", response.status, response.statusText);
+    }
+
+    // Now update UI with animations
     setTimeout(() => {
-      // Step 9.1: Sum of Noise Bits
-      const sumNoise = noiseBits.reduce((sum, bit) => sum + bit.value, 0);
       setIntermediateValues(prev => ({ ...prev, sumNoise }));
       
       setTimeout(() => {
-        // Step 9.2: Calculate n_b / 2
-        const n_b = calculateNB(epsilon);
-        const nbOver2 = n_b / 2;
         setIntermediateValues(prev => ({ ...prev, nbOver2 }));
 
         setTimeout(() => {
-          // Step 9.3: Calculate Noise Value
-          const noiseVal = sumNoise - nbOver2;
           setIntermediateValues(prev => ({ ...prev, noiseVal }));
 
           setTimeout(() => {
-            // Step 9.4: Calculate Noisy Sum y
-            const originalY = count + noiseVal;
-            const finalY = Math.ceil(originalY); // Round up
             setIntermediateValues(prev => ({ ...prev, noiseVal, originalNoisySumY: originalY }));
+            // setNoisySumY(apiSum ?? finalY);
             setNoisySumY(finalY);
 
             setTimeout(() => {
-              // Step 9.5: Mark calculation as done
               setCalculationProgress(2);
-            }, 700); // Delay before marking done
-          }, 700); // Delay before showing final sum
-        }, 700); // Delay before showing noise value
-      }, 700); // Delay before showing nb/2
-    }, 500); // Initial delay
+            }, 700);
+          }, 700);
+        }, 700);
+      }, 700);
+    }, 500);
   };
+
+  const handleComputeZ = async () => {
+    if (noisySumY === null) return;
+
+    setCalculationProgress(1);
+    setZValue(null);
+    
+  }
 
   // Handler for Step 11: Commit y and z
   const handleCommitYZ = () => {
@@ -987,11 +1132,12 @@ export default function GameScreen({ onBack }: GameScreenProps) {
         `}
       </style>
       <GameNavbar onBack={onBack} />
-      <div className="flex-1 p-5 overflow-y-auto mt-16">
-        <div className="p-4 bg-white rounded-lg shadow-sm mx-auto min-w-[1000px] w-full">
+      <div className="flex-1 p-2 min-[1300px]:p-5 overflow-y-auto mt-16">
+        <div className="p-2 min-[1300px]:p-4 bg-white rounded-lg shadow-sm mx-auto w-full max-w-[100vw] min-[1300px]:min-w-[1000px]">
           <h3 className="text-xl font-bold mb-4">Differentially Private Computation</h3>
-          <div className="flex flex-col gap-8 my-5 p-3">
-            <div className={`p-8 text-center border rounded transition-all relative w-full flex flex-col justify-between min-h-[200px] ${getStepStyle('input')}`}>
+          <div className="flex flex-col gap-4 min-[1300px]:gap-8 my-2 min-[1300px]:my-5 p-2 min-[1300px]:p-3">
+            {/* Update each step container to be mobile responsive */}
+            <div className={`p-4 min-[1300px]:p-8 text-center border rounded transition-all relative w-full flex flex-col justify-between min-h-[200px] ${getStepStyle('input')}`}>
               <StepHeader step="input" title="Step 1: Input Collection" />
               <div className="flex flex-col items-center gap-4">
                 <CSVReader
@@ -1011,8 +1157,8 @@ export default function GameScreen({ onBack }: GameScreenProps) {
                       >
                         {acceptedFile ? (
                           <div className="flex flex-col items-center gap-2">
-                            <p className="text-lg">{acceptedFile.name}</p>
-                            <p className="text-sm text-gray-500">
+                            <p className="text-base min-[1300px]:text-lg">{acceptedFile.name}</p>
+                            <p className="text-xs min-[1300px]:text-sm text-gray-500">
                               {formatFileSize(acceptedFile.size)}
                             </p>
                             <ProgressBar />
@@ -1033,7 +1179,7 @@ export default function GameScreen({ onBack }: GameScreenProps) {
                             </div>
                           </div>
                         ) : (
-                          <p className="text-lg">Drag and drop a CSV file here, or click to select</p>
+                          <p className="text-base min-[1300px]:text-lg">Drag and drop a CSV file here, or click to select</p>
                         )}
                       </div>
                     </div>
@@ -1041,7 +1187,7 @@ export default function GameScreen({ onBack }: GameScreenProps) {
                 </CSVReader>
 
                 {csvColumns.length > 0 && !isParsing && (
-                  <div className="w-full max-w-4xl mx-auto mt-4">
+                  <div className="w-full max-w-full min-[1300px]:max-w-4xl mx-auto mt-4">
                     <div className="mb-4">
                       <label className="block text-sm font-medium text-gray-700 mb-2">
                         Select Column to Process
@@ -1052,14 +1198,14 @@ export default function GameScreen({ onBack }: GameScreenProps) {
                             <div
                               key={column.name}
                               onClick={() => setSelectedColumn(column.name)}
-                              className={`flex-shrink-0 w-48 p-3 rounded-lg border cursor-pointer transition-all snap-start ${
+                              className={`flex-shrink-0 w-36 min-[1300px]:w-48 p-2 min-[1300px]:p-3 rounded-lg border cursor-pointer transition-all snap-start ${
                                 selectedColumn === column.name
                                   ? 'border-blue-500 bg-blue-50'
                                   : 'border-gray-200 hover:border-gray-300'
                               }`}
                             >
                               <div className="flex items-center justify-between mb-2">
-                                <h4 className="font-medium text-gray-900 text-sm truncate" title={column.name}>
+                                <h4 className="font-medium text-gray-900 text-xs min-[1300px]:text-sm truncate" title={column.name}>
                                   {column.name}
                                 </h4>
                                 {column.isBinary && (
@@ -1103,12 +1249,12 @@ export default function GameScreen({ onBack }: GameScreenProps) {
                         <label className="block text-sm font-medium text-gray-700 mb-2">
                           Set Threshold Value
                         </label>
-                        <div className="flex items-center gap-4">
+                        <div className="flex flex-col min-[1300px]:flex-row items-center gap-4">
                           <input
                             type="number"
                             value={threshold}
                             onChange={(e) => setThreshold(parseFloat(e.target.value))}
-                            className="flex-1 px-3 py-2 border rounded-md"
+                            className="w-full min-[1300px]:flex-1 px-3 py-2 border rounded-md"
                           />
                           <div className="text-sm text-gray-500">
                             Values ≥ {threshold} will be converted to 1, others to 0
@@ -1127,7 +1273,7 @@ export default function GameScreen({ onBack }: GameScreenProps) {
                   </div>
                 )}
 
-                <div className="mt-4 p-3 bg-blue-50 rounded text-lg font-bold text-blue-500 transition-all relative" ref={countRef}>
+                <div className="mt-4 p-2 min-[1300px]:p-3 bg-blue-50 rounded text-base min-[1300px]:text-lg font-bold text-blue-500 transition-all relative" ref={countRef}>
                   <div className="relative inline-block group">
                     Client count: {displayedClientCount} | Hidden count sum: {count}
                     <div className="absolute invisible group-hover:visible opacity-0 group-hover:opacity-100 transition-opacity duration-300 bottom-full left-1/2 transform -translate-x-1/2 z-10 bg-gray-800 text-white text-left p-2 rounded-lg min-w-[120px] mb-2">
@@ -1147,22 +1293,24 @@ export default function GameScreen({ onBack }: GameScreenProps) {
                 </div>
               </div>
             </div>
-            <div className={`p-8 text-center border rounded transition-all relative w-full flex flex-col justify-between min-h-[200px] ${getStepStyle('commit-inputs')}`}>
+
+            {/* Update the grid containers to be responsive */}
+            <div className={`p-4 min-[1300px]:p-8 text-center border rounded transition-all relative w-full flex flex-col justify-between min-h-[200px] ${getStepStyle('commit-inputs')}`}>
               <StepHeader step="commit-inputs" title="Step 2: Commit Client Inputs" />
               <div className="flex flex-col items-center gap-4">
-                {isCommitting ? <p className="m-0 mb-5 text-gray-600 text-lg">Committing all raw inputs...</p> : null}
+                {isCommitting ? <p className="m-0 mb-5 text-gray-600 text-base min-[1300px]:text-lg">Committing all raw inputs...</p> : null}
                 <div className="w-full mb-4">
                   {pedersenCommitments.length > 0 && (
                     <div className="w-full flex justify-center">
-                      <div className="w-[600px] h-[600px] overflow-y-auto border rounded-lg shadow-sm bg-white">
+                      <div className="w-full min-[1300px]:w-[600px] h-[300px] min-[1300px]:h-[600px] overflow-y-auto border rounded-lg shadow-sm bg-white">
                         <Grid
                           className="pedersen-grid-container"
                           columnCount={50}
                           columnWidth={30}
                           rowCount={Math.ceil(pedersenCommitments.length / 50)}
                           rowHeight={30}
-                          width={600}
-                          height={600}
+                          width={window.innerWidth < 1300 ? window.innerWidth - 32 : 600}
+                          height={window.innerWidth < 1300 ? 300 : 600}
                         >
                           {Cell}
                         </Grid>
@@ -1174,13 +1322,15 @@ export default function GameScreen({ onBack }: GameScreenProps) {
                   <Button 
                     onClick={handleCommitInputs}
                     disabled={!isStepEnabled('commit-inputs') || clients.length === 0 || isCommitting || step !== 'commit-inputs'}
-                    className="w-1/2 py-6 text-lg"
+                    className="w-full min-[1300px]:w-1/2 py-4 min-[1300px]:py-6 text-base min-[1300px]:text-lg"
                   >
                     {isCommitting ? 'Committing...' : 'Commit Inputs'}
                   </Button>
                 </div>
               </div>
             </div>
+
+            {/* Continue updating other step containers similarly... */}
             <div className={`p-8 text-center border rounded transition-all relative w-full flex flex-col justify-between min-h-[200px] ${getStepStyle('set-epsilon')}`}>
               <StepHeader step="set-epsilon" title="Step 3: Set Privacy Parameters" />
               <div className="text-sm text-gray-600 mb-4">
@@ -1280,7 +1430,11 @@ export default function GameScreen({ onBack }: GameScreenProps) {
                         Reset Sampling Method
                       </Button>
                       <Button
-                        onClick={() => handleConfirmPrivateBits(privateBits)}
+                        onClick={() => {
+                          console.log("Confirm Private Bits button clicked");
+                          console.log("Current privateBits:", privateBits);
+                          handleConfirmPrivateBits(privateBits);
+                        }}
                         className="text-sm"
                         disabled={!privateBits.length}
                       >
