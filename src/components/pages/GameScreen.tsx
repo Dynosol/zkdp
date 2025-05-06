@@ -169,9 +169,7 @@ export default function GameScreen({ onBack }: GameScreenProps) {
   const [isInitializing, setIsInitializing] = useState<boolean>(false);
   const [isCommittingInputs, setIsCommittingInputs] = useState<boolean>(false);
   const [isCommittingPrivateBits, setIsCommittingPrivateBits] = useState<boolean>(false);
-  const [isGettingPublicRandom, setIsGettingPublicRandom] = useState<boolean>(false);
   const [isComputingXOR, setIsComputingXOR] = useState<boolean>(false);
-  const [isOverwritingXOR, setIsOverwritingXOR] = useState<boolean>(false);
   const [isComputingSum, setIsComputingSum] = useState<boolean>(false);
   const [isComputingZ, setIsComputingZ] = useState<boolean>(false);
   const [isCommittingYZ, setIsCommittingYZ] = useState<boolean>(false);
@@ -795,7 +793,6 @@ export default function GameScreen({ onBack }: GameScreenProps) {
   };
 
   const handleMorraComplete = async() => {
-    setIsGettingPublicRandom(true);
     try {
       const response = await fetch(`${API_BASE_URL}/public_random`, {
         method: 'POST',
@@ -816,7 +813,6 @@ export default function GameScreen({ onBack }: GameScreenProps) {
         console.error("Failed to get public random:", response.status, response.statusText);
       }
     } finally {
-      setIsGettingPublicRandom(false);
       setMorraAnimationCompleted(true);
     }
   };
@@ -888,7 +884,6 @@ export default function GameScreen({ onBack }: GameScreenProps) {
   };
 
   const overwriteXORBits = async () => {
-    setIsOverwritingXOR(true);
     try {
       const response = await fetch(`${API_BASE_URL}/overwrite_xor_bits`, {
         method: 'POST',
@@ -911,8 +906,6 @@ export default function GameScreen({ onBack }: GameScreenProps) {
       }
     } catch (error) {
       console.error("Network error:", error);
-    } finally {
-      setIsOverwritingXOR(false);
     }
   };
 
