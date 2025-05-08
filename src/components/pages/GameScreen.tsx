@@ -604,7 +604,7 @@ export default function GameScreen({ onBack }: GameScreenProps) {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          n: newClients.length,
+          // n: newClients.length, // depricated by max
           x: newClients.map(client => client.value)
         })
       });
