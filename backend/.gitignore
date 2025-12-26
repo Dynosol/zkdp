@@ -1,0 +1,20 @@
+# General
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.env*
+
+# Rust / Cargo
+/target/
+Cargo.lock # Often committed for applications, uncomment if you want to ignore
+
+# Node.js / npm (relative to backendtest)
+/backendtest/node_modules/
+/backendtest/npm-debug.log*
+/backendtest/yarn-error.log*
+/backendtest/pnpm-debug.log*
+
+# IDE / Editor specific
+.vscode/
+.idea/ 

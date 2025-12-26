@@ -1,0 +1,26 @@
+# Environment and secrets
+.env*
+*.pem
+*.key
+*.p12
+*.pfx
+credentials*
+secrets*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor directories
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Logs
+*.log
+
+# Build artifacts
+dist/
+*.txt
+*.pdf
