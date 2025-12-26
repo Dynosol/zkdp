@@ -5,9 +5,7 @@ import { Button } from '../ui/button';
 import { useCSVReader } from 'react-papaparse';
 import MorraAnimation from '../morra/MorraAnimation';
 
-const API_BASE_URL = process.env.NODE_ENV === 'development' 
-  ? 'http://localhost:9537'  // Local backend
-  : 'https://zkdp-backend-production.up.railway.app';  // Production backend
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:9537';
 
 interface LhsResponse {
   lhs: number;
